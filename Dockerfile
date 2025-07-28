@@ -34,8 +34,8 @@ COPY . .
 
 # Expose the port. Render will automatically map this.
 # Use $PORT to align with Render's dynamic port assignment.
-EXPOSE $PORT
+EXPOSE 8000
 
 # Command to run your application using Gunicorn.
 # Use $PORT for dynamic binding.
-CMD ["gunicorn", "app:app", "-w", "4", "--bind", "0.0.0.0:${PORT}"]
+CMD gunicorn app:app -w 4 --bind 0.0.0.0:$PORT
