@@ -1,7 +1,7 @@
 import io
 import requests
 from flask import Flask, request, jsonify
-from pdf2image import convert_from_bytes, convert_from_path
+from pdf2image import convert_from_bytes, convert_from_path # <-- Ensure convert_from_path is here
 from PIL import Image
 import pytesseract
 import tempfile
@@ -36,13 +36,28 @@ def ocr_from_url():
                 images = convert_from_path(temp_pdf_path)
                 text = ""
                 for i, image in enumerate(images):
-                    # Use Pillow's save method for image and then Tesseract
-                    # Ensure we convert to RGB as Tesseract prefers it for certain image types
-                    text += pytesseract.image_to_string(image.convert('RGB'), lang=lang) + "\n"
+                    # --- START OF OPTIMIZATION CODE FOR PDFS (URL) ---
+                    # Resize image if it's too large
+                    if image.width > 1500 or image.height > 1500:
+                        image.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+                    # Convert to grayscale
+                    processed_image = image.convert('L')
+                    text += pytesseract.image_to_string(processed_image, lang=lang) + "\n"
+                    del image # Explicitly delete image to free memory after processing each
+                    # --- END OF OPTIMIZATION CODE FOR PDFS (URL) ---
         else:
             # For images, process directly
             image = Image.open(io.BytesIO(file_content))
-            text = pytesseract.image_to_string(image.convert('RGB'), lang=lang)
+            # --- START OF OPTIMIZATION CODE FOR IMAGES (URL) ---
+            # Resize image if it's too large
+            if image.width > 1500 or image.height > 1500:
+                image.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+            # Convert to grayscale
+            processed_image = image.convert('L')
+            text = pytesseract.image_to_string(processed_image, lang=lang)
+            del image # Explicitly delete image to free memory
+            # --- END OF OPTIMIZATION CODE FOR IMAGES (URL) ---
+
 
         return jsonify({"success": True, "text": text})
 
@@ -82,11 +97,27 @@ def upload_and_ocr():
                     images = convert_from_path(temp_pdf_path)
                     text = ""
                     for i, image in enumerate(images):
-                        text += pytesseract.image_to_string(image.convert('RGB'), lang=lang) + "\n"
+                        # --- START OF OPTIMIZATION CODE FOR PDFS (UPLOAD) ---
+                        # Resize image if it's too large
+                        if image.width > 1500 or image.height > 1500:
+                            image.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+                        # Convert to grayscale
+                        processed_image = image.convert('L')
+                        text += pytesseract.image_to_string(processed_image, lang=lang) + "\n"
+                        del image # Explicitly delete image to free memory after processing each
+                        # --- END OF OPTIMIZATION CODE FOR PDFS (UPLOAD) ---
             else:
                 # For images, process directly
                 image = Image.open(io.BytesIO(file_content))
-                text = pytesseract.image_to_string(image.convert('RGB'), lang=lang)
+                # --- START OF OPTIMIZATION CODE FOR IMAGES (UPLOAD) ---
+                # Resize image if it's too large
+                if image.width > 1500 or image.height > 1500:
+                    image.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+                # Convert to grayscale
+                processed_image = image.convert('L')
+                text = pytesseract.image_to_string(processed_image, lang=lang)
+                del image # Explicitly delete image to free memory
+                # --- END OF OPTIMIZATION CODE FOR IMAGES (UPLOAD) ---
 
             return jsonify({"success": True, "text": text})
 
