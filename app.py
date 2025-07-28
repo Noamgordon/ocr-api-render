@@ -1,82 +1,97 @@
-import os
+import io
 import requests
 from flask import Flask, request, jsonify
+from pdf2image import convert_from_bytes
 from PIL import Image
 import pytesseract
-from pdf2image import convert_from_bytes
-import io
+import tempfile
+import os
 
 app = Flask(__name__)
 
-# Function to get Tesseract language code for auto-detection
-def get_tesseract_lang_code(lang_hint="auto"):
-    if lang_hint == "auto":
-        # Tesseract can use '+' for multiple languages to try and auto-detect
-        # 'eng' for English, 'heb' for Hebrew. Add others if you expect them.
-        return "eng+heb"
-    elif lang_hint == "hebrew":
-        return "heb"
-    elif lang_hint == "english":
-        return "eng"
-    # Add more language mappings here if needed (e.g., "spanish": "spa")
-    else:
-        return lang_hint # Assume valid Tesseract code if not in specific mapping
-
 @app.route('/ocr', methods=['POST'])
 def ocr_from_url():
-    data = request.get_json()
+    # This endpoint still handles URLs as before
+    data = request.get_json(silent=True)
     if not data or 'url' not in data:
-        return jsonify({"error": "Please provide a 'url' in the JSON body."}), 400
+        return jsonify({"error": "Missing 'url' in JSON body"}), 400
 
-    file_url = data['url']
-    lang_hint = data.get('lang', 'auto').lower() # Default to auto-detect
+    image_url = data['url']
+    lang = data.get('lang', 'eng') # Default to English, or 'auto' for auto-detection
 
     try:
-        response = requests.get(file_url, stream=True)
-        response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+        response = requests.get(image_url)
+        response.raise_for_status() # Raise an exception for bad status codes
+        file_content = response.content
 
-        file_content = io.BytesIO(response.content)
-        extracted_texts = []
-        is_pdf = False
+        # Determine file type and process
+        if image_url.lower().endswith(('.pdf')):
+            # For PDFs, convert to images first
+            with tempfile.TemporaryDirectory() as path:
+                # pdf2image needs the PDF to be on disk, so we save it temporarily
+                temp_pdf_path = os.path.join(path, 'temp.pdf')
+                with open(temp_pdf_path, 'wb') as f:
+                    f.write(file_content)
 
-        # Basic check for PDF by content type or file extension.
-        content_type = response.headers.get('Content-Type', '').lower()
-        if 'application/pdf' in content_type or file_url.lower().endswith('.pdf'):
-            is_pdf = True
-
-        if is_pdf:
-            # For PDFs, convert each page to an image and then OCR
-            # `poppler_path` is usually not needed when poppler-utils is system-installed in Docker
-            images = convert_from_bytes(file_content.read(), dpi=300) # Increased DPI for better accuracy
-
-            tess_lang = get_tesseract_lang_code(lang_hint)
-
-            for i, image in enumerate(images):
-                # Perform OCR on each image
-                # config='--psm 3' is default for 'fully automatic page segmentation, but no OSD.'
-                text = pytesseract.image_to_string(image, lang=tess_lang)
-                extracted_texts.append(f"--- Page {i+1} ---\n{text.strip()}")
+                images = convert_from_path(temp_pdf_path)
+                text = ""
+                for i, image in enumerate(images):
+                    # Use Pillow's save method for image and then Tesseract
+                    # Ensure we convert to RGB as Tesseract prefers it for certain image types
+                    text += pytesseract.image_to_string(image.convert('RGB'), lang=lang) + "\n"
         else:
-            # For images, just open and OCR
-            image = Image.open(file_content)
+            # For images, process directly
+            image = Image.open(io.BytesIO(file_content))
+            text = pytesseract.image_to_string(image.convert('RGB'), lang=lang)
 
-            tess_lang = get_tesseract_lang_code(lang_hint)
-
-            text = pytesseract.image_to_string(image, lang=tess_lang)
-            extracted_texts.append(text.strip())
-
-        if not extracted_texts:
-            return jsonify({"status": "success", "message": "No text found or unable to process file."}), 200
-
-        full_text = "\n\n".join(extracted_texts)
-
-        return jsonify({"status": "success", "text": full_text}), 200
+        return jsonify({"success": True, "text": text})
 
     except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Failed to download file from URL: {e}"}), 400
+        return jsonify({"error": f"Error fetching URL: {e}"}), 400
     except Exception as e:
-        return jsonify({"error": f"An error occurred during OCR processing: {e}"}), 500
+        return jsonify({"error": f"OCR processing failed: {e}"}), 500
+
+
+@app.route('/upload_and_ocr', methods=['POST'])
+def upload_and_ocr():
+    # This new endpoint handles file uploads
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
+
+    file = request.files['file']
+    lang = request.form.get('lang', 'auto') # Get language from form data
+
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    if file:
+        # Read the file content directly from the FileStorage object
+        file_content = file.read()
+        filename = file.filename
+
+        try:
+            # Determine file type based on filename extension
+            if filename.lower().endswith(('.pdf')):
+                # For PDFs, convert to images first
+                with tempfile.TemporaryDirectory() as path:
+                    # pdf2image needs the PDF to be on disk, so we save it temporarily
+                    temp_pdf_path = os.path.join(path, filename)
+                    with open(temp_pdf_path, 'wb') as f:
+                        f.write(file_content)
+
+                    images = convert_from_path(temp_pdf_path)
+                    text = ""
+                    for i, image in enumerate(images):
+                        text += pytesseract.image_to_string(image.convert('RGB'), lang=lang) + "\n"
+            else:
+                # For images, process directly
+                image = Image.open(io.BytesIO(file_content))
+                text = pytesseract.image_to_string(image.convert('RGB'), lang=lang)
+
+            return jsonify({"success": True, "text": text})
+
+        except Exception as e:
+            return jsonify({"error": f"OCR processing failed: {e}"}), 500
 
 if __name__ == '__main__':
-    # This runs the Flask development server (not used on Render directly)
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(debug=True, host='0.0.0.0', port=os.environ.get('PORT', 8000))
