@@ -1,7 +1,7 @@
 import io
 import requests
 from flask import Flask, request, jsonify
-from pdf2image import convert_from_bytes
+from pdf2image import convert_from_bytes, convert_from_path
 from PIL import Image
 import pytesseract
 import tempfile
