@@ -1,19 +1,23 @@
 # Use an official Python base image with a Debian distribution (slim for smaller size)
 FROM python:3.9-slim-buster
 
-# Set environment variables to prevent interactive prompts during apt-get install
+# Set environment variables for Python in Docker
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Tesseract OCR and its language packs, and Poppler utilities
-# Poppler utilities (poppler-utils) are essential for pdf2image to work with PDFs.
-# tesseract-ocr-eng for English, tesseract-ocr-heb for Hebrew.
-# Add more tesseract-ocr-<lang_code> packages if you need other languages.
+# Install Tesseract OCR and its language packs, Poppler utilities, and essential image processing libs
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-heb \
     poppler-utils \
     libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container
@@ -28,11 +32,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of your application code into the container
 COPY . .
 
-# Expose the port that your Flask application will listen on
-# Render will automatically map this to a public port.
-EXPOSE 8000
+# Expose the port. Render will automatically map this.
+# Use $PORT to align with Render's dynamic port assignment.
+EXPOSE $PORT
 
-# Command to run your application using Gunicorn (production web server)
-# Gunicorn is robust for production. 'app:app' means 'app' Flask instance from 'app.py'
-# Use the PORT environment variable provided by Render.
-CMD ["gunicorn", "app:app", "-w", "4", "-b", "0.0.0.0:8000"]
+# Command to run your application using Gunicorn.
+# Use $PORT for dynamic binding.
+CMD ["gunicorn", "app:app", "-w", "4", "--bind", "0.0.0.0:${PORT}"]
