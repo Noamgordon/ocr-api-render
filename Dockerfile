@@ -1,5 +1,5 @@
 # Use an official Python base image with a Debian distribution (slim for smaller size)
-FROM python:3.9-slim-buster
+FROM python:3.9-slim-bullseye
 
 # Set environment variables for Python in Docker
 ENV PYTHONDONTWRITEBYTECODE=1
